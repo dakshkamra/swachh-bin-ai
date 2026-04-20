@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swachh-Bin AI | History & Monitoring</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-[#0f172a] text-slate-200 p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div>
+                <h1 class="text-4xl font-black text-white tracking-tight">SWACHH-BIN <span class="text-green-500">AI</span></h1>
+                <p class="text-slate-400 font-medium">Smart Waste History & Analysis Portal</p>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="downloadLog()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-lg text-sm transition">Download Session Report</button>
+                <div id="status-pill" class="bg-slate-800 text-slate-400 px-4 py-2 rounded-lg border border-slate-700 text-sm font-bold flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-slate-500 animate-pulse"></span> Offline
+                </div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <div class="lg:col-span-3 bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden flex flex-col h-[700px]">
+                <div class="p-4 border-b border-slate-800 bg-slate-900">
+                    <h2 class="font-bold flex items-center gap-2 text-slate-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Detection History
+                    </h2>
+                </div>
+                <div id="history-list" class="flex-1 overflow-y-auto p-4 space-y-3">
+                    <p class="text-xs text-slate-500 text-center py-10 italic">No history recorded yet.</p>
+                </div>
+            </div>
+
+            <div class="lg:col-span-6 space-y-6">
+                <div class="bg-slate-900 border border-slate-800 p-2 rounded-3xl overflow-hidden shadow-2xl">
+                    <div id="webcam-container" class="aspect-video bg-black rounded-2xl flex items-center justify-center relative group">
+                        <button onclick="init()" class="bg-green-600 hover:bg-green-500 text-white px-10 py-4 rounded-xl font-bold shadow-xl transition-all hover:scale-105">
+                            START SMART SENSOR
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+                    <h3 class="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4">Real-time Recognition</h3>
+                    <div id="label-container" class="grid grid-cols-1 gap-4">
+                        </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-3 space-y-6">
+                <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-lg">
+                    <h2 class="text-lg font-bold mb-4">Waste Distribution</h2>
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center bg-slate-800/50 p-3 rounded-xl border border-slate-700">
+                            <span class="text-sm font-medium">Dry Waste</span>
+                            <span id="dry-count" class="text-xl font-black text-blue-400">0</span>
+                        </div>
+                        <div class="flex justify-between items-center bg-slate-800/50 p-3 rounded-xl border border-slate-700">
+                            <span class="text-sm font-medium">Wet Waste</span>
+                            <span id="wet-count" class="text-xl font-black text-green-400">0</span>
+                        </div>
+                        <div class="flex justify-between items-center bg-red-500/10 p-3 rounded-xl border border-red-500/20">
+                            <span class="text-sm font-medium text-red-400">Hazardous</span>
+                            <span id="hazard-count" class="text-xl font-black text-red-500">0</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-gradient-to-br from-green-600 to-green-800 p-6 rounded-2xl text-white">
+                    <h3 class="font-bold text-lg mb-1">Eco Impact</h3>
+                    <p class="text-green-100 text-xs mb-4 opacity-80">Track your contribution to Swachh Bharat.</p>
+                    <div class="text-3xl font-black" id="total-items">0</div>
+                    <div class="text-xs uppercase font-bold opacity-70">Total Items Segregated</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        // --- 1. SET YOUR URL HERE ---
+        const URL = "https://teachablemachine.withgoogle.com/models/wdk0Ktx4w/"; 
+
+        let model, webcam, labelContainer, maxPredictions;
+        let counts = { "dry": 0, "wet": 0, "hazard": 0, "total": 0 };
+
+        async function init() {
+            try {
+                model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+                maxPredictions = model.getTotalClasses();
+
+                webcam = new tmImage.Webcam(640, 480, true);
+                await webcam.setup();
+                await webcam.play();
+                window.requestAnimationFrame(loop);
+
+                document.getElementById("webcam-container").innerHTML = "";
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                
+                const statusPill = document.getElementById("status-pill");
+                statusPill.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500 animate-ping"></span> Live Monitoring';
+                statusPill.classList.replace("text-slate-400", "text-green-500");
+
+                labelContainer = document.getElementById("label-container");
+                labelContainer.innerHTML = "";
+                for (let i = 0; i < maxPredictions; i++) {
+                    labelContainer.appendChild(document.createElement("div"));
+                }
+            } catch (e) {
+                alert("Model Error: Verify your Teachable Machine URL.");
+            }
+        }
+
+        async function loop() {
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        let lastSeen = "";
+        let cooldown = false;
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            for (let i = 0; i < maxPredictions; i++) {
+                const classPred = prediction[i].className;
+                const prob = prediction[i].probability.toFixed(2);
+                
+                labelContainer.childNodes[i].innerHTML = `
+                    <div class="flex justify-between text-xs font-bold text-slate-400 mb-1 uppercase">
+                        <span>${classPred}</span>
+                        <span>${(prob * 100).toFixed(0)}% Match</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-3 rounded-full overflow-hidden border border-slate-700">
+                        <div class="bg-gradient-to-r from-green-500 to-emerald-400 h-full transition-all duration-300" style="width: ${prob * 100}%"></div>
+                    </div>
+                `;
+
+                if (prob > 0.95 && classPred !== lastSeen && !cooldown) {
+                    lastSeen = classPred;
+                    addToHistory(classPred);
+                    updateCounters(classPred);
+                    triggerCooldown();
+                }
+            }
+        }
+
+        function addToHistory(type) {
+            const historyList = document.getElementById("history-list");
+            if (counts.total === 0) historyList.innerHTML = "";
+
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const isHazard = type.toLowerCase().includes("hazard");
+            
+            const item = document.createElement("div");
+            item.className = `p-3 rounded-xl border ${isHazard ? 'bg-red-500/5 border-red-500/20' : 'bg-slate-800/50 border-slate-800'} animate-in slide-in-from-left duration-300`;
+            item.innerHTML = `
+                <div class="flex justify-between items-start mb-1">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">${time}</span>
+                    <span class="w-2 h-2 rounded-full ${isHazard ? 'bg-red-500' : 'bg-green-500'}"></span>
+                </div>
+                <p class="text-sm font-bold text-slate-200">${type}</p>
+            `;
+            historyList.prepend(item);
+        }
+
+        function updateCounters(type) {
+            counts.total++;
+            const t = type.toLowerCase();
+            if (t.includes("dry")) counts.dry++;
+            else if (t.includes("wet")) counts.wet++;
+            else if (t.includes("hazard")) counts.hazard++;
+
+            document.getElementById("dry-count").innerText = counts.dry;
+            document.getElementById("wet-count").innerText = counts.wet;
+            document.getElementById("hazard-count").innerText = counts.hazard;
+            document.getElementById("total-items").innerText = counts.total;
+        }
+
+        function triggerCooldown() {
+            cooldown = true;
+            setTimeout(() => { cooldown = false; lastSeen = ""; }, 3000);
+        }
+
+        function downloadLog() {
+            let content = "SWACHH-BIN AI SESSION REPORT\n============================\n";
+            content += `Date: ${new Date().toLocaleDateString()}\n`;
+            content += `Total Items: ${counts.total}\nDry: ${counts.dry} | Wet: ${counts.wet} | Hazard: ${counts.hazard}\n\n`;
+            content += "HISTORY LOG:\n";
+            document.querySelectorAll("#history-list p").forEach(p => content += `- ${p.innerText}\n`);
+            
+            const blob = new Blob([content], { type: "text/plain" });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "Waste_Analysis_Report.txt";
+            a.click();
+        }
+    </script>
+</body>
+</html>
